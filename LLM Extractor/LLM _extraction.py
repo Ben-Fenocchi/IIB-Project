@@ -7,33 +7,34 @@ from typing import Any, Dict, List, Optional
 
 import pandas as pd
 from openai import OpenAI
+from dotenv import load_dotenv
 
-from Webscraper.webscraper import extract_article_text
+from webscraper import extract_article_text
 
 
-# =============================================================================
-# OpenAI client (env var OR prompt fallback)
-# =============================================================================
+#------------------ENV + OPENAI CLIENT SETUP------------------#
+
+# Load .env from project root
+load_dotenv()
 
 api_key = os.getenv("OPENAI_API_KEY")
 if not api_key:
-    print("OPENAI_API_KEY not found in environment.")
-    api_key = input("Paste your OpenAI API key here: ").strip()
-    if not api_key:
-        raise RuntimeError("No API key provided.")
+    raise RuntimeError("OPENAI_API_KEY not found in environment or .env file.")
 
 client = OpenAI(api_key=api_key)
 
-# Cheapest good extraction model that exists in API:
-DEFAULT_MODEL="gpt-5-nano"
+# Default extraction model (chosen for cost/quality tradeoff)
+DEFAULT_MODEL = "gpt-5-nano"
 
 
-# =============================================================================
-# Data class for one extracted record
-# =============================================================================
+#------------------DATA MODEL------------------#
 
 @dataclass
 class ExtractRecord:
+    """
+    Structured representation of one extracted disruption event.
+    This is what gets serialised to JSONL/CSV downstream.
+    """
     url: str
     source_title: str
     disruption_type: str
@@ -46,9 +47,7 @@ class ExtractRecord:
     method: str  # "llm-only"
 
 
-# =============================================================================
-# LLM helper
-# =============================================================================
+#------------------LLM EXTRACTION HELPER------------------#
 
 def _call_chatgpt_extractor(
     url: str,
@@ -57,16 +56,20 @@ def _call_chatgpt_extractor(
     model: str = DEFAULT_MODEL,
     timeout: int = 60,
 ) -> Dict[str, Any]:
-    """Call ChatGPT to extract a single disruption record as STRICT JSON."""
+    """
+    Calls the LLM and forces a STRICT JSON object response matching the schema.
+    Returns a dict with all expected keys present (defaults filled if missing).
+    """
 
     system_prompt = """
 You are an information extraction engine for supply chain disruptions.
 
 Your job is to read a news article and extract a REAL PHYSICAL disruption event
-affecting mining, smelting, transport routes, power supply, or critical commodities.
+that could affect critical material supply chains. The disruption categories you are interested in are the following:
+-Earthquakes, Floods, Cyclones/Hurricanes, Heatwaves ,Droughts, Mine Collapse, Critical Mineral Labour Strikes, Export Restrictions/ Trade Embargos,
 
 Ignore:
-- metaphorical or financial 'storms' (e.g. 'a storm in markets', 'a flood of criticism'),
+- metaphorical or financial 'disruptions' (e.g. 'a storm in markets', 'a flood of criticism'),
 - purely opinion/editorial content without a concrete incident,
 - purely hypothetical scenarios.
 
@@ -86,9 +89,8 @@ return a JSON object but set:
 - "evidence": []
 - "confidence": 0.0
 
-Definitions:
-- A disruption is an actual or ongoing event that affects production, logistics, or exports.
-- Examples: flooding of a mine or smelter, cyclone closing a port, drought halting mining,
+Examples of disruptions:
+- Flooding of a mine or smelter, cyclone closing a port, drought halting mining,
   landslide or mine collapse, labour strike halting production, trade embargo or sanctions,
   power outage at a key facility, major road/rail closure disrupting shipments.
 
@@ -160,9 +162,7 @@ TEXT:
     return data
 
 
-# =============================================================================
-# Single-URL orchestrator
-# =============================================================================
+#------------------SINGLE-URL ORCHESTRATOR------------------#
 
 def extract_from_url_llm_only(url: str, model: str = DEFAULT_MODEL) -> ExtractRecord:
     """
@@ -190,9 +190,7 @@ def extract_from_url_llm_only(url: str, model: str = DEFAULT_MODEL) -> ExtractRe
     )
 
 
-# =============================================================================
-# Batch runner (same file)
-# =============================================================================
+#------------------BATCH RUNNER (for multiple URL's at once)------------------#
 
 def run_batch(
     input_csv: str = "test_urls.csv",
@@ -201,7 +199,6 @@ def run_batch(
     """
     Loop through all URLs in input_csv and save outputs into ./results/
     """
-    # Always save into a folder called "results" next to this script
     base_dir = os.path.dirname(os.path.abspath(__file__))
     results_dir = os.path.join(base_dir, "results")
     os.makedirs(results_dir, exist_ok=True)
@@ -210,7 +207,6 @@ def run_batch(
     out_csv = os.path.join(results_dir, "extractions.csv")
     out_errors = os.path.join(results_dir, "errors.csv")
 
-    # Locate CSV in same folder as this file
     input_path = os.path.join(base_dir, input_csv)
     if not os.path.exists(input_path):
         raise FileNotFoundError(f"Could not find {input_csv} in {base_dir}")
@@ -225,7 +221,6 @@ def run_batch(
     results = []
     errors = []
 
-    # Overwrite jsonl each run
     if os.path.exists(out_jsonl):
         os.remove(out_jsonl)
 
@@ -261,9 +256,6 @@ def run_batch(
         print("No errors recorded.")
 
 
-# =============================================================================
-# CLI entrypoint
-# =============================================================================
 
 if __name__ == "__main__":
     run_batch()
