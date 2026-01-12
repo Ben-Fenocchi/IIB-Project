@@ -10,6 +10,9 @@ from dotenv import load_dotenv
 # Load environment variables
 load_dotenv()
 
+# Ensure outputs save next to this script (not the current working directory)
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
 # Set plot style
 try:
     plt.style.use("seaborn-v0_8-darkgrid")
@@ -153,6 +156,7 @@ def analyze_costs_cumulative(project_id=None):
     base_params = {}
     if project_id:
         base_params["project_ids"] = [project_id]
+    
 
     cost_buckets = fetch_daily_buckets_in_windows(url, base_params, start_time, end_time)
     if not cost_buckets:
@@ -179,6 +183,19 @@ def analyze_costs_cumulative(project_id=None):
     # Combine any accidental duplicates
     daily = daily.groupby("date_utc", as_index=False)["daily_cost_usd"].sum()
 
+    # Ensure we have an explicit row for every day (missing => 0.0 cost),
+    # so merges don't drop days that the API simply didn't return.
+    start_date = pd.to_datetime(start_time, unit="s", utc=True).date()
+    end_date = pd.to_datetime(end_time, unit="s", utc=True).date()
+    full_days = pd.date_range(start=start_date, end=end_date, freq="D").date
+
+    daily = (
+        daily.set_index("date_utc")
+             .reindex(full_days, fill_value=0.0)
+             .rename_axis("date_utc")
+             .reset_index()
+    )
+
     # Round to nearest 0.1 cent ($0.001) to save space
     daily["daily_cost_usd"] = daily["daily_cost_usd"].round(3)
 
@@ -199,8 +216,9 @@ def analyze_costs_cumulative(project_id=None):
     plt.gca().yaxis.set_major_formatter(mtick.StrMethodFormatter("${x:,.2f}"))
 
     plt.tight_layout()
-    print("Saving Cumulative Cost Chart to cost_cumulative_chart.png...")
-    plt.savefig("cost_cumulative_chart.png", dpi=300)
+    out_png = os.path.join(BASE_DIR, "cost_cumulative_chart.png")
+    print(f"Saving Cumulative Cost Chart to {out_png}...")
+    plt.savefig(out_png, dpi=300)
     plt.close()
 
     return daily[["date_utc", "daily_cost_usd", "cumulative_cost_usd"]]
@@ -231,7 +249,6 @@ def usage_cost_table(project_id=None):
     usage_buckets = fetch_daily_buckets_in_windows(url, base_params, start_time, end_time)
     if not usage_buckets:
         print("No usage data available.")
-        # still return an empty table
         empty = pd.DataFrame(columns=["date_utc", "requests_count", "input_tokens", "output_tokens", "daily_cost_usd"])
         print("\nDaily usage/cost table is empty.")
         return empty
@@ -272,20 +289,12 @@ def usage_cost_table(project_id=None):
     table = usage_daily.merge(costs_daily, on="date_utc", how="left")
     table["daily_cost_usd"] = table["daily_cost_usd"].fillna(0.0).round(3)
 
-    # Tidy column names (units included)
-    table = table.rename(columns={
-        "requests_count": "requests_count",
-        "input_tokens": "input_tokens",
-        "output_tokens": "output_tokens",
-        "daily_cost_usd": "daily_cost_usd",
-    })
-
-    # Save ONE CSV (the table you asked for)
-    print("Saving Daily Usage/Cost Table to daily_usage_cost_table.csv...")
-    table.to_csv("daily_usage_cost_table.csv", index=False)
+    # Save CSV next to this script
+    out_csv = os.path.join(BASE_DIR, "daily_usage_cost_table.csv")
+    print(f"Saving Daily Usage/Cost Table to {out_csv}...")
+    table.to_csv(out_csv, index=False)
 
     # Display a readable table output in the console
-    # (Print all rows if small, otherwise print head+tail)
     pd.set_option("display.width", 160)
     pd.set_option("display.max_columns", 20)
 
