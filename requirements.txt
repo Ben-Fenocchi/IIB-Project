@@ -1,1 +1,1 @@
-requirements e.g. pandas, newspaper3k, trafilaturs, ftfy etc.
+requirements e.g. pandas, newspaper3k, trafilaturs, ftfy etc., dotenv
