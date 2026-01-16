@@ -20,6 +20,76 @@ except OSError:
     plt.style.use("ggplot")
 
 
+# ------------------0) PRICING (USD per 1M tokens) ------------------#
+# Source: OpenAI pricing table (Standard tier). Update if you change models/tier.
+# Missing models will be warned + skipped in the estimate. :contentReference[oaicite:3]{index=3}
+PRICES_PER_1M = {
+    # GPT-5 family
+    "gpt-5.2": {"input": 1.75, "cached_input": 0.175, "output": 14.00},
+    "gpt-5.1": {"input": 1.25, "cached_input": 0.125, "output": 10.00},
+    "gpt-5": {"input": 1.25, "cached_input": 0.125, "output": 10.00},
+    "gpt-5-mini": {"input": 0.25, "cached_input": 0.025, "output": 2.00},
+    "gpt-5-nano": {"input": 0.05, "cached_input": 0.005, "output": 0.40},
+
+    # Common others (examples from pricing page; extend as needed)
+    "gpt-4.1": {"input": 2.00, "cached_input": 0.50, "output": 8.00},
+    "gpt-4.1-mini": {"input": 0.40, "cached_input": 0.10, "output": 1.60},
+    "gpt-4.1-nano": {"input": 0.10, "cached_input": 0.025, "output": 0.40},
+    "gpt-4o": {"input": 2.50, "cached_input": 1.25, "output": 10.00},
+    "gpt-4o-mini": {"input": 0.15, "cached_input": 0.075, "output": 0.60},
+}
+
+def _resolve_price_key(model_name: str) -> str | None:
+    """
+    Try to map a concrete model name (e.g., gpt-4o-mini-2024-07-18)
+    to a base pricing key (e.g., gpt-4o-mini).
+    """
+    if not model_name:
+        return None
+    if model_name in PRICES_PER_1M:
+        return model_name
+
+    # Common versioned model names
+    for k in PRICES_PER_1M.keys():
+        if model_name == k or model_name.startswith(k + "-"):
+            return k
+
+    # chat-latest / codex aliases sometimes appear
+    # e.g. gpt-5.1-chat-latest -> gpt-5.1
+    for prefix in ["-chat-latest", "-codex", "-codex-mini", "-codex-max", "-search-api"]:
+        if model_name.endswith(prefix):
+            base = model_name[: -len(prefix)]
+            if base in PRICES_PER_1M:
+                return base
+
+    return None
+
+
+def estimate_cost_usd(input_tokens: int, input_cached_tokens: int, output_tokens: int, model_name: str) -> float | None:
+    """
+    Estimate USD cost for a single model given token usage.
+    Uses: (non_cached_input * input_price + cached_input * cached_price + output * output_price) / 1e6
+    """
+    key = _resolve_price_key(model_name)
+    if not key:
+        return None
+
+    p = PRICES_PER_1M[key]
+    in_total = int(input_tokens or 0)
+    in_cached = int(input_cached_tokens or 0)
+    out_total = int(output_tokens or 0)
+
+    in_non_cached = max(in_total - in_cached, 0)
+
+    usd = (
+        (in_non_cached * p["input"])
+        + (in_cached * p["cached_input"])
+        + (out_total * p["output"])
+    ) / 1_000_000.0
+
+    return float(usd)
+
+
 # ------------------1) API HELPERS------------------#
 def get_admin_headers():
     """Build headers using the admin key from environment variables."""
@@ -124,8 +194,6 @@ def fetch_daily_buckets_in_windows(url, base_params, start_time, end_time):
         # Move to next window (avoid overlap)
         cursor_start = window_end
 
-        # Safety: if the API returned nothing for a window, still advance.
-        # (This prevents accidental infinite loops.)
         if window_end == end_time:
             break
 
@@ -137,13 +205,13 @@ def fetch_daily_buckets_in_windows(url, base_params, start_time, end_time):
     return [dedup[k] for k in sorted(dedup.keys())]
 
 
-# ------------------3) COST: CUMULATIVE PLOT ONLY------------------#
+# ------------------3) COST: CUMULATIVE PLOT ONLY (OFFICIAL) ------------------#
 def analyze_costs_cumulative(project_id=None):
     """
     Produces: a plot of cumulative cost from Oct 1st 2025 to present day.
-    Returns: daily cost dataframe with columns [date_utc, daily_cost_usd, cumulative_cost_usd]
+    Returns: daily cost dataframe with columns [date_utc, official_daily_cost_usd, cumulative_cost_usd]
     """
-    print("\nFetching Cost Data...")
+    print("\nFetching Cost Data (official Costs endpoint)...")
     url = "https://api.openai.com/v1/organization/costs"
 
     # Fixed start time: 1st October 2025 00:00 UTC
@@ -156,12 +224,11 @@ def analyze_costs_cumulative(project_id=None):
     base_params = {}
     if project_id:
         base_params["project_ids"] = [project_id]
-    
 
     cost_buckets = fetch_daily_buckets_in_windows(url, base_params, start_time, end_time)
     if not cost_buckets:
         print("No cost data available.")
-        return pd.DataFrame(columns=["date_utc", "daily_cost_usd", "cumulative_cost_usd"])
+        return pd.DataFrame(columns=["date_utc", "official_daily_cost_usd", "cumulative_cost_usd"])
 
     # Parse cost data into daily totals
     rows = []
@@ -174,17 +241,16 @@ def analyze_costs_cumulative(project_id=None):
 
         rows.append({
             "start_time_unix_s": bucket_start,
-            "daily_cost_usd": day_cost
+            "official_daily_cost_usd": day_cost
         })
 
     daily = pd.DataFrame(rows)
     daily["date_utc"] = pd.to_datetime(daily["start_time_unix_s"], unit="s", utc=True).dt.date
 
     # Combine any accidental duplicates
-    daily = daily.groupby("date_utc", as_index=False)["daily_cost_usd"].sum()
+    daily = daily.groupby("date_utc", as_index=False)["official_daily_cost_usd"].sum()
 
-    # Ensure we have an explicit row for every day (missing => 0.0 cost),
-    # so merges don't drop days that the API simply didn't return.
+    # Ensure explicit row for every day (missing => 0.0)
     start_date = pd.to_datetime(start_time, unit="s", utc=True).date()
     end_date = pd.to_datetime(end_time, unit="s", utc=True).date()
     full_days = pd.date_range(start=start_date, end=end_date, freq="D").date
@@ -196,12 +262,11 @@ def analyze_costs_cumulative(project_id=None):
              .reset_index()
     )
 
-    # Round to nearest 0.1 cent ($0.001) to save space
-    daily["daily_cost_usd"] = daily["daily_cost_usd"].round(3)
+    daily["official_daily_cost_usd"] = daily["official_daily_cost_usd"].round(3)
 
     # Cumulative
     daily = daily.sort_values("date_utc").reset_index(drop=True)
-    daily["cumulative_cost_usd"] = daily["daily_cost_usd"].cumsum().round(3)
+    daily["cumulative_cost_usd"] = daily["official_daily_cost_usd"].cumsum().round(3)
 
     # Plot: cumulative total cost since Oct 1 2025
     plt.figure(figsize=(12, 6))
@@ -221,13 +286,16 @@ def analyze_costs_cumulative(project_id=None):
     plt.savefig(out_png, dpi=300)
     plt.close()
 
-    return daily[["date_utc", "daily_cost_usd", "cumulative_cost_usd"]]
+    return daily[["date_utc", "official_daily_cost_usd", "cumulative_cost_usd"]]
 
 
-# ------------------4) USAGE+COST TABLE (PANDAS)------------------#
+# ------------------4) USAGE + COST TABLE (OFFICIAL + ESTIMATED) ------------------#
 def usage_cost_table(project_id=None):
     """
-    Produces: ONE table (pandas) of each day where there was usage, and the cost from that day.
+    Produces: ONE table (pandas) of each day where there was usage.
+    Adds:
+      - official_daily_cost_usd (Costs endpoint, can lag today)
+      - estimated_daily_cost_usd (Usage tokens * pricing, updates intraday)
     Saves: daily_usage_cost_table.csv
     """
     print("\nFetching Usage Data...")
@@ -237,11 +305,13 @@ def usage_cost_table(project_id=None):
     start_dt = datetime.datetime(2025, 10, 1, 0, 0, 0, tzinfo=datetime.timezone.utc)
     start_time = int(start_dt.timestamp())
 
-    # End time: now
+    # End time: now (exclusive in API) :contentReference[oaicite:4]{index=4}
     end_time = int(time.time())
 
     base_params = {
+        # We want model so we can price tokens -> dollars
         "group_by": ["model", "project_id"],
+        "bucket_width": "1d",
     }
     if project_id:
         base_params["project_ids"] = [project_id]
@@ -249,45 +319,96 @@ def usage_cost_table(project_id=None):
     usage_buckets = fetch_daily_buckets_in_windows(url, base_params, start_time, end_time)
     if not usage_buckets:
         print("No usage data available.")
-        empty = pd.DataFrame(columns=["date_utc", "requests_count", "input_tokens", "output_tokens", "daily_cost_usd"])
+        empty = pd.DataFrame(columns=[
+            "date_utc", "requests_count", "input_tokens", "output_tokens",
+            "official_daily_cost_usd", "estimated_daily_cost_usd"
+        ])
         print("\nDaily usage/cost table is empty.")
         return empty
 
-    # Parse usage buckets into daily totals (across models/projects)
-    rows = []
+    # --- Parse usage buckets into (date, model) rows so we can estimate costs ---
+    model_rows = []
     for bucket in usage_buckets:
         bucket_start = bucket.get("start_time")
-        results = bucket.get("results", [])
+        date_utc = pd.to_datetime(bucket_start, unit="s", utc=True).date()
 
-        day_requests = 0
-        day_in = 0
-        day_out = 0
+        for r in bucket.get("results", []):
+            model_rows.append({
+                "date_utc": date_utc,
+                "model": r.get("model"),
+                "requests_count": int(r.get("num_model_requests", 0) or 0),
+                "input_tokens": int(r.get("input_tokens", 0) or 0),
+                "input_cached_tokens": int(r.get("input_cached_tokens", 0) or 0),
+                "output_tokens": int(r.get("output_tokens", 0) or 0),
+            })
 
-        for r in results:
-            day_requests += int(r.get("num_model_requests", 0) or 0)
-            day_in += int(r.get("input_tokens", 0) or 0)
-            day_out += int(r.get("output_tokens", 0) or 0)
+    usage_by_model = pd.DataFrame(model_rows)
+    if usage_by_model.empty:
+        print("Usage buckets returned but contained no results.")
+        empty = pd.DataFrame(columns=[
+            "date_utc", "requests_count", "input_tokens", "output_tokens",
+            "official_daily_cost_usd", "estimated_daily_cost_usd"
+        ])
+        return empty
 
-        rows.append({
-            "start_time_unix_s": bucket_start,
-            "requests_count": day_requests,
-            "input_tokens": day_in,
-            "output_tokens": day_out,
-        })
+    # Aggregate in case of duplicates
+    usage_by_model = (
+        usage_by_model
+        .groupby(["date_utc", "model"], as_index=False)[
+            ["requests_count", "input_tokens", "input_cached_tokens", "output_tokens"]
+        ].sum()
+    )
 
-    usage_daily = pd.DataFrame(rows)
-    usage_daily["date_utc"] = pd.to_datetime(usage_daily["start_time_unix_s"], unit="s", utc=True).dt.date
-    usage_daily = usage_daily.groupby("date_utc", as_index=False)[["requests_count", "input_tokens", "output_tokens"]].sum()
+    # Estimate USD per (date, model)
+    missing_models = set()
+    est_costs = []
+    for _, row in usage_by_model.iterrows():
+        est = estimate_cost_usd(
+            input_tokens=row["input_tokens"],
+            input_cached_tokens=row["input_cached_tokens"],
+            output_tokens=row["output_tokens"],
+            model_name=row["model"] or "",
+        )
+        if est is None:
+            missing_models.add(row["model"])
+            est = 0.0
+        est_costs.append(est)
+
+    usage_by_model["estimated_cost_usd_model"] = est_costs
+
+    if missing_models:
+        missing_models_str = ", ".join(sorted([m for m in missing_models if m]))
+        print("\nWARNING: Some models were not found in PRICES_PER_1M and were skipped in the estimate:")
+        print(f"  {missing_models_str}")
+        print("Add them to PRICES_PER_1M at the top of the script to improve estimate accuracy.")
+
+    # Collapse to daily totals across models
+    usage_daily = (
+        usage_by_model
+        .groupby("date_utc", as_index=False)[
+            ["requests_count", "input_tokens", "output_tokens"]
+        ].sum()
+    )
+
+    estimated_daily = (
+        usage_by_model
+        .groupby("date_utc", as_index=False)["estimated_cost_usd_model"]
+        .sum()
+        .rename(columns={"estimated_cost_usd_model": "estimated_daily_cost_usd"})
+    )
 
     # Keep only days where there was usage
     usage_daily = usage_daily[usage_daily["requests_count"] > 0].copy()
     usage_daily = usage_daily.sort_values("date_utc").reset_index(drop=True)
 
-    # Fetch daily cost series (already windowed, limit-safe) and merge
-    costs_daily = analyze_costs_cumulative(project_id=project_id)[["date_utc", "daily_cost_usd"]].copy()
+    # Merge in estimated costs (updates intraday)
+    table = usage_daily.merge(estimated_daily, on="date_utc", how="left")
+    table["estimated_daily_cost_usd"] = table["estimated_daily_cost_usd"].fillna(0.0).round(4)
 
-    table = usage_daily.merge(costs_daily, on="date_utc", how="left")
-    table["daily_cost_usd"] = table["daily_cost_usd"].fillna(0.0).round(3)
+    # Fetch official daily cost series and merge
+    costs_daily = analyze_costs_cumulative(project_id=project_id)[["date_utc", "official_daily_cost_usd"]].copy()
+    table = table.merge(costs_daily, on="date_utc", how="left")
+    table["official_daily_cost_usd"] = table["official_daily_cost_usd"].fillna(0.0).round(3)
 
     # Save CSV next to this script
     out_csv = os.path.join(BASE_DIR, "daily_usage_cost_table.csv")
@@ -295,16 +416,16 @@ def usage_cost_table(project_id=None):
     table.to_csv(out_csv, index=False)
 
     # Display a readable table output in the console
-    pd.set_option("display.width", 160)
-    pd.set_option("display.max_columns", 20)
+    pd.set_option("display.width", 180)
+    pd.set_option("display.max_columns", 30)
 
     print("\nDaily Usage/Cost Table (days with usage only):")
-    if len(table) <= 50:
+    if len(table) <= 60:
         print(table.to_string(index=False))
     else:
-        print(table.head(25).to_string(index=False))
+        print(table.head(30).to_string(index=False))
         print("\n... (snip) ...\n")
-        print(table.tail(25).to_string(index=False))
+        print(table.tail(30).to_string(index=False))
 
     return table
 
@@ -317,10 +438,10 @@ if __name__ == "__main__":
     if project_id:
         print(f"Found Project ID: {project_id}")
 
-        # cumulative cost since Oct 1 2025
+        # cumulative official cost since Oct 1 2025
         analyze_costs_cumulative(project_id)
 
-        # table (pandas) of days with usage + that day's cost
+        # table (pandas) of days with usage + official cost + estimated cost
         usage_cost_table(project_id)
 
     else:

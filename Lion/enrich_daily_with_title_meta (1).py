@@ -40,7 +40,7 @@ INPUT_DIR = Path("data/interim/gdelt_event_context_daily")
 OUTPUT_SUFFIX = "_enriched.csv"
 
 # Run one day at a time (YYYYMMDD). Change this per run.
-ONLY_DAY = "20240215"
+ONLY_DAY = "20240303"
 
 # DAY-SPECIFIC CACHE FILE (title/meta) -> filename includes the day
 CACHE_PATH = Path(f"data/interim/_state/url_title_meta_cache_{ONLY_DAY}.csv")

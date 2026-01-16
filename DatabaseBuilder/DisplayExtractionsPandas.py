@@ -2,38 +2,55 @@ import pandas as pd
 from pathlib import Path
 
 
-def view_extractions(max_rows: int = 30, title_words: int = 8):
-    base_dir = Path(__file__).resolve().parent
+def _load_extractions(base_dir: Path) -> pd.DataFrame:
     csv_path = base_dir / "results" / "extractions.csv"
+    jsonl_path = base_dir / "results" / "extractions.jsonl"
 
-    if not csv_path.exists():
-        raise FileNotFoundError(f"Could not find {csv_path}")
+    if csv_path.exists():
+        return pd.read_csv(csv_path)
+    elif jsonl_path.exists():
+        return pd.read_json(jsonl_path, lines=True)
+    else:
+        raise FileNotFoundError(
+            f"Could not find either {csv_path.name} or {jsonl_path.name} in {base_dir / 'results'}"
+        )
 
-    df = pd.read_csv(csv_path)
+
+def _truncate(s: str, max_chars: int) -> str:
+    s = str(s)
+    if len(s) <= max_chars:
+        return s
+    return s[: max_chars - 3].rstrip() + "..."
+
+
+def view_extractions(
+    max_rows: int = 30,
+    title_max_chars: int = 40,
+    location_max_chars: int = 40,
+):
+    base_dir = Path(__file__).resolve().parent
+    df = _load_extractions(base_dir)
 
     # Fill NaNs for nicer display
     df = df.fillna("")
 
-    # Create a shortened title column
-    def short_title(s: str) -> str:
-        words = str(s).split()
-        return " ".join(words[:title_words]) + ("…" if len(words) > title_words else "")
-
-    df["title_short"] = df["source_title"].apply(short_title)
+    # Truncate title + location to keep tables readable
+    df["title_short"] = df["source_title"].apply(lambda s: _truncate(s, title_max_chars))
+    df["location_short"] = df["location_name"].apply(lambda s: _truncate(s, location_max_chars))
 
     # Select and rename columns for display
     view = df[[
         "title_short",
         "disruption_type",
         "event_date",
-        "location_name",
+        "location_short",
         "duration_hours",
         "confidence",
     ]].rename(columns={
         "title_short": "title",
         "disruption_type": "type",
         "event_date": "date",
-        "location_name": "location",
+        "location_short": "location",
         "duration_hours": "duration_h",
     })
 
@@ -43,15 +60,24 @@ def view_extractions(max_rows: int = 30, title_words: int = 8):
     # Display settings for terminal
     pd.set_option("display.max_columns", None)
     pd.set_option("display.width", 140)
-    pd.set_option("display.max_colwidth", 40)
+    pd.set_option("display.max_colwidth", None)
 
-    print("\n=== Extraction Summary ===\n")
+    print("\n=== Disruption Type Counts ===\n")
+    counts = view["type"].value_counts().sort_index()
+    print(counts.to_frame(name="count").to_string())
 
-    if len(view) <= max_rows:
-        print(view.to_string(index=False))
-    else:
-        print(view.head(max_rows).to_string(index=False))
-        print(f"\n... ({len(view) - max_rows} more rows not shown) ...\n")
+    # Print per-type tables, skipping unknowns
+    for dtype, group in view.groupby("type"):
+        if dtype == "unknown" or len(group) == 0:
+            continue
+
+        print(f"\n=== {dtype.upper()} ({len(group)} events) ===\n")
+
+        if len(group) <= max_rows:
+            print(group.to_string(index=False))
+        else:
+            print(group.head(max_rows).to_string(index=False))
+            print(f"\n... ({len(group) - max_rows} more rows not shown) ...\n")
 
 
 if __name__ == "__main__":

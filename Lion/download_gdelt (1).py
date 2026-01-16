@@ -222,4 +222,4 @@ def main(start_utc: str, end_utc: str) -> None:
 
 if __name__ == "__main__":
     # Example: one day
-    main("20240215000000", "20240215235959")
+    main("20240303000000", "20240303235959")

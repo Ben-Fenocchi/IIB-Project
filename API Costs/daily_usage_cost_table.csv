@@ -1,3 +1,4 @@
-date_utc,requests_count,input_tokens,output_tokens,daily_cost_usd
-2025-11-22,120,722218,123150,0.436
-2026-01-12,100,653900,99985,0.0
+date_utc,requests_count,input_tokens,output_tokens,estimated_daily_cost_usd,official_daily_cost_usd
+2025-11-22,120,722218,123150,2.1343,0.085
+2026-01-12,204,1447000,143370,3.2424,0.158
+2026-01-13,103,477049,79156,1.3879,0.278
