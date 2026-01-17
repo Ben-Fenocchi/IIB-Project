@@ -4,7 +4,7 @@ This repository contains a data pipeline for identifying, extracting, and valida
 
 ## Overview
 
-The pipeline ingests global news data, filters for supply-chain-relevant content, extracts structured disruption events using a large language model (LLM), and validates these events against external reference datasets. The resulting database supports high-frequency indicator construction and, in later stages, disruption-likelihood modelling.
+The pipeline ingests global news data, filters for disruption events, extracts these using a large language model (LLM), and validates these events against external reference datasets. The resulting database in conjuction with supplementation of missing indicators will in later stages allow for disruption-likelihood modelling.
 
 ## Key Features
 
@@ -12,7 +12,7 @@ The pipeline ingests global news data, filters for supply-chain-relevant content
 * Supervised filtering of irrelevant articles
 * LLM-based extraction of structured disruption events
 * Coverage of physical and socio-political disruption types
-* Modular validation against external datasets (e.g. ACLED, MMAD, ICEWS)
+* Modular validation against external datasets (e.g. ACLED, MMAD, ICEWS) (WIP)
 
 ## Project Structure
 
@@ -36,19 +36,14 @@ The pipeline ingests global news data, filters for supply-chain-relevant content
 1. Run `pipeline.py` with a target date to retrieve and filter news articles
 2. Run `DatabaseBuilder/DisruptionExtractor.py` to extract structured events
 3. (Optional) Use display scripts to inspect extraction outputs
-4. Validation scripts are located in `DatabaseValidation/`
+4. Validation scripts are located in `DatabaseValidation/` (at the moment these are simply just smoke tests)
 
-## Outputs
-
-* Structured disruption events in CSV and JSONL format
-* Logs of failed or skipped articles
-* Validation summaries (where available)
 
 ## Current Limitations
 
-* Validation is incomplete for some disruption types
-* Indicator construction and likelihood modelling are still in progress
-* The relevance classifier requires additional labelled data
+* Validation is incomplete
+* Indicator retrieval and likelihood modelling are still in progress
+* The relevance classifier requires additional labelled data to reduce overheads downstream
 
 ## Roadmap
 
