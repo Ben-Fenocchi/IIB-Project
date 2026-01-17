@@ -8,10 +8,8 @@ import pandas as pd
 from joblib import load
 from sentence_transformers import SentenceTransformer
 
-# --- CONFIG ---
-# We'll save the "Gold" output here
+
 GOLD_BASE_DIR = Path("data/processed/model_scored_daily")
-# We get our input from the cleaned "Step 4" state
 STATE_DIR = Path("data/interim/_state")
 
 BAD_TEXT_PATTERNS = [
@@ -20,9 +18,6 @@ BAD_TEXT_PATTERNS = [
     "captcha", "#value", "value!"
 ]
 
-# -----------------------------
-# HELPERS (Unchanged)
-# -----------------------------
 def looks_like_garbage(s: str) -> bool:
     if not isinstance(s, str): return True
     s = s.lower().strip()

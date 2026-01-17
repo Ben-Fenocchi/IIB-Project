@@ -187,8 +187,6 @@ def extract_rows_from_zip(url: str) -> List[List[str]]:
     return out_rows
 
 
-# ... (Keep all your imports and helper functions the same) ...
-
 def main(target_day: str) -> None:
     """
     target_day: format 'YYYYMMDD' (e.g., '20230501')
@@ -236,7 +234,6 @@ def main(target_day: str) -> None:
     
     print(f"Done! Daily file is at: {daily_output_path(targets[0][0])}")
 
-# Simplified Input
 if __name__ == "__main__":
     day_to_process = input("Enter date to process (YYYYMMDD): ").strip()
     main(day_to_process)

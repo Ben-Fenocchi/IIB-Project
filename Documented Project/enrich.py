@@ -10,9 +10,6 @@ import requests
 from bs4 import BeautifulSoup
 from tqdm import tqdm
 
-# -----------------------------
-# CONFIG
-# -----------------------------
 BASE_DIR = Path("data/interim/gdelt_event_context_daily")
 OUTPUT_SUFFIX = "_enriched.csv"
 USER_AGENT = "Mozilla/5.0 (compatible; LithiumQRA/1.0)"
@@ -21,14 +18,12 @@ HEADERS = {"User-Agent": USER_AGENT, "Accept": "text/html,application/xhtml+xml"
 TIMEOUT_S = 20
 MAX_RETRIES = 2
 SLEEP_BETWEEN_REQ = (0.05, 0.15) 
-MAX_WORKERS = 20  # Optimized for your low 429 error rate
+MAX_WORKERS = 20  # Optimized for low 429 error rate
 
 MAX_TITLE_CHARS = 300
 MAX_DESC_CHARS = 800
 
-# -----------------------------
-# HELPERS & FETCH LOGIC
-# -----------------------------
+
 def normalize_url(url: str) -> str:
     url = (url or "").strip()
     if not url: return url
@@ -68,9 +63,7 @@ def fetch_title_meta(url: str, session: requests.Session) -> Tuple[str, str, int
             return "", "", 0, f"exception:{type(e).__name__}"
     return "", "", 0, "failed_after_retries"
 
-# -----------------------------
-# CACHE & WORKER
-# -----------------------------
+
 CACHE_FIELDS = ["url_normalized", "title", "meta_description", "http_status", "fetch_error"]
 
 def append_cache_row(row: Dict[str, str]):

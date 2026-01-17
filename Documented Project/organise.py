@@ -6,7 +6,6 @@ from pathlib import Path
 def organize_to_day_level(base_dir: str):
     base_path = Path(base_dir)
     
-    # 1. UPDATED: Use a pattern that catches both .csv and .txt
     # We use a list comprehension with rglob for multi-extension support
     extensions = ['*.csv', '*.txt']
     all_files = []

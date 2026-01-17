@@ -1,16 +1,3 @@
-# train_disruption_model_xlsx.py
-#
-# Train a binary "disruption vs not" classifier from your labelled Excel file (.xlsx)
-# and write an Excel review file with false positives + false negatives.
-#
-# Expected columns:
-#   url_normalized, title, meta_description, ..., disruption
-#
-# Install:
-#   pip install pandas openpyxl scikit-learn sentence-transformers joblib
-#
-# Run:
-#   python train_disruption_model_xlsx.py
 
 from pathlib import Path
 import re
@@ -27,9 +14,7 @@ from sklearn.calibration import CalibratedClassifierCV
 from sklearn.metrics import classification_report, confusion_matrix, average_precision_score
 
 
-# =========================
-# CONFIG — CHANGE THESE
-# =========================
+
 TRAINING_XLSX = r"data/interim/labelled_disruption.xlsx"
 SHEET_NAME = 0  # 0 = first sheet; or put the sheet name string
 OUTPUT_DIR = "models/disruption_v1"
@@ -37,7 +22,6 @@ USE_URL_FALLBACK = True
 REQUIRE_TEXT = True
 
 THRESHOLD = 0.4  # <-- prediction threshold for class 1
-# =========================
 
 
 BAD_TEXT_PATTERNS = [

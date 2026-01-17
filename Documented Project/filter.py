@@ -69,7 +69,7 @@ NEGATIVE_PATH_KEYWORDS = [
     "migrants","oyster","church","mosque","synagogue", "cocaine", "drug"
 ]
 
-# Optional: skip obvious non-article pages
+# skip obvious non-article pages
 NEGATIVE_PATH_PATTERNS = [
     r"/tag/", r"/tags/", r"/category/", r"/author/", r"/gallery/", r"/video/", r"/podcast/"
 ]
@@ -209,10 +209,6 @@ def dedupe_and_filter_file(path: Path) -> None:
     print(f"  -> {filtered_path.name}")
 
 
-# ... (Keep all your keywords and helper functions exactly the same) ...
-
-# 1. Change the function definition to accept target_date
-# ... (Keep all your keywords and helper functions exactly the same) ...
 
 def main(target_date: str): 
     # 1. We use rglob to search recursively through all subfolders (Year/Month/Day)
@@ -237,12 +233,6 @@ def main(target_date: str):
         # which means it will save the new CSVs in the EXACT same folder as the input.
         dedupe_and_filter_file(path)
 
-if __name__ == "__main__":
-    # If run by itself, ask for input
-    day = input("Select date (YYYYMMDD): ").strip()
-    main(day)
-
-# 3. Update the execution block so it still works if you run this file alone
 if __name__ == "__main__":
     # If run by itself, ask for input
     day = input("Select date (YYYYMMDD): ").strip()

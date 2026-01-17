@@ -1,10 +1,9 @@
-# -*- coding: utf-8 -*-
+
 from pathlib import Path
 import html
 import pandas as pd
 from ftfy import fix_text
 
-# --- CONFIG ---
 # State files stay in the flat _state folder for easy cross-referencing
 STATE_DIR = Path("data/interim/_state")
 
