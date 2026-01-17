@@ -41,13 +41,13 @@ Configure required API keys in a .env file
 
 Usage
 
-Run pipeline.py with a target date to retrieve and filter news articles.
+Run pipeline.py with a target date to retrieve and filter news articles
 
-Run DatabaseBuilder/DisruptionExtractor.py to extract structured events.
+Run DatabaseBuilder/DisruptionExtractor.py to extract structured events
 
-(Optional) Use display scripts to inspect extraction outputs.
+(Optional) Use display scripts to inspect extraction outputs
 
-Validation scripts are located in DatabaseValidation/.
+Validation scripts are located in DatabaseValidation/
 
 Outputs
 
