@@ -1,1 +1,13 @@
 requirements e.g. pandas, newspaper3k, trafilaturs, ftfy etc., dotenv
+requests
+beautifulsoup4
+lxml
+tqdm
+pandas
+numpy
+openpyxl
+scikit-learn
+joblib
+sentence-transformers
+torch
+
