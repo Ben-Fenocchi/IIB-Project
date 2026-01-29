@@ -1,9 +1,12 @@
-requirements e.g. pandas, newspaper3k, trafilaturs, ftfy etc., dotenv
+pandas 
+newspaper3k 
+trafilatura 
+ftfy
+dotenv
 requests
 beautifulsoup4
 lxml
 tqdm
-pandas
 numpy
 openpyxl
 scikit-learn
