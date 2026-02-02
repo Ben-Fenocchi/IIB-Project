@@ -20,7 +20,7 @@ from datetime import timedelta
 
 # ------------------ I/O ------------------ #
 
-from validation.io import (
+from io import (
     load_extracted_events,
     write_json,
     write_csv,
@@ -28,24 +28,24 @@ from validation.io import (
 
 # ------------------ EXTRACTED EVENT PROCESSING ------------------ #
 
-from validation.extracted.filtering import filter_by_type
-from validation.extracted.profiling import profile_extracted_events
-from validation.extracted.metadata_inference import to_canonical_extracted
+from extracted.filtering import filter_by_type
+from extracted.profiling import profile_extracted_events
+from extracted.metadata_inference import to_canonical_extracted
 
 # ------------------ REFERENCE DATA ------------------ #
 
-from validation.reference.load_flood_references import load_all_flood_references
-from validation.reference.standardise import standardise_reference_events
+from reference.load_flood_references import load_all_flood_references
+from reference.standardise import standardise_reference_events
 
 # ------------------ MATCHING ------------------ #
 
-from validation.matching.candidate_generation import generate_candidates
-from validation.matching.scoring import score_candidate
-from validation.matching.dual_gate import run_dual_gate_validation
+from matching.candidate_generation import generate_candidates
+from matching.scoring import score_candidate
+from matching.dual_gate import run_dual_gate_validation
 
 # ------------------ REPORTING ------------------ #
 
-from validation.outputs.report import (
+from outputs.report import (
     build_summary,
     decisions_to_rows,
     failure_reasons,
