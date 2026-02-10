@@ -3,10 +3,8 @@ from pathlib import Path
 
 
 def _load_extractions(base_dir: Path) -> pd.DataFrame:
-    #csv_path = base_dir / "results" / "dedupedExtractions.csv"
-    #jsonl_path = base_dir / "results" / "dedupedExtractions.jsonl"
-    csv_path = base_dir / "results" / "extractions.csv"
-    jsonl_path = base_dir / "results" / "extractions.jsonl"
+    csv_path = base_dir / "results" / "consolidatedExtractions.csv"
+    jsonl_path = base_dir / "results" / "consolidatedExtractions.jsonl"
 
     if csv_path.exists():
         return pd.read_csv(csv_path)
@@ -67,90 +65,29 @@ def _print_coverage_stats(df: pd.DataFrame):
     print("\n=========================================================\n")
 
 
-def _save_plots(df: pd.DataFrame, out_dir: Path, top_n_types: int = 12):
-    """
-    Produces three plots:
-      1) Disruption type counts (excluding 'unknown')
-      2) Known vs unknown disruption counts
-      3) Confidence histogram (excluding 'unknown')
-    """
-    import matplotlib.pyplot as plt
-
-    out_dir.mkdir(parents=True, exist_ok=True)
-
-    df = df.copy()
-    df["type"] = df["disruption_type"].astype(str).str.strip()
-    df["confidence"] = _to_numeric(df.get("confidence"))
-
-    known = df[df["type"] != "unknown"]
-    type_counts = known["type"].value_counts()
-
-    if len(type_counts) > top_n_types:
-        top = type_counts.iloc[:top_n_types]
-        remainder = type_counts.iloc[top_n_types:].sum()
-        type_counts = pd.concat([top, pd.Series({"other": remainder})])
-
-    plt.figure(figsize=(8, 4.2))
-    type_counts.sort_values(ascending=False).plot(kind="bar")
-    plt.xlabel("")
-    plt.ylabel("count")
-    plt.title("Extracted disruption events by type (excluding unknown)")
-    plt.xticks(rotation=35, ha="right")
-    plt.tight_layout()
-    plt.savefig(out_dir / "disruption_type_counts_known.png", dpi=300)
-    plt.close()
-
-    known_count = (df["type"] != "unknown").sum()
-    unknown_count = (df["type"] == "unknown").sum()
-
-    plt.figure(figsize=(4.5, 4.2))
-    plt.bar(["known", "unknown"], [known_count, unknown_count])
-    plt.ylabel("count")
-    plt.title("Known vs unknown extractions")
-    plt.tight_layout()
-    plt.savefig(out_dir / "known_vs_unknown.png", dpi=300)
-    plt.close()
-
-    conf = known["confidence"].dropna()
-    if len(conf) > 0:
-        plt.figure(figsize=(8, 4.2))
-        plt.hist(conf, bins=20)
-        plt.xlabel("confidence")
-        plt.ylabel("count")
-        plt.title("Confidence score distribution (known events)")
-        plt.tight_layout()
-        plt.savefig(out_dir / "confidence_histogram_known.png", dpi=300)
-        plt.close()
-
-    print("\n=== Plots saved ===")
-    print(f"- {out_dir / 'disruption_type_counts_known.png'}")
-    print(f"- {out_dir / 'known_vs_unknown.png'}")
-    if len(conf) > 0:
-        print(f"- {out_dir / 'confidence_histogram_known.png'}")
-
-
 def view_extractions(
     max_rows: int = 30,
     title_max_chars: int = 40,
     location_max_chars: int = 40,
-    make_plots: bool = True,
-    plots_dirname: str = "plots",
 ):
     base_dir = Path(__file__).resolve().parent
     df = _load_extractions(base_dir)
     df = df.fillna("")
 
+    # ---- Explanation of date formats ----
+    print(
+        "\nDate notation used below:\n"
+        "- YYYY-MM-DD : event date extracted from article text (preferred)\n"
+        "- YYYY/MM/DD : article publish date (metadata proxy, used when no event date)\n"
+    )
+
     # ---- Coverage diagnostics ----
     _print_coverage_stats(df)
 
-    df["event_date"] = pd.to_datetime(df.get("event_date"), errors="coerce")
-    df["publish_date"] = pd.to_datetime(df.get("publish_date"), errors="coerce")
+    df["event_date"] = pd.to_datetime(df.get("event_date"), errors="coerce", utc=True).dt.tz_convert(None)
+    df["publish_date"] = pd.to_datetime(df.get("publish_date"), errors="coerce", utc=True).dt.tz_convert(None)
 
     def display_date(row) -> str:
-        """
-        Prefer extracted event_date.
-        Fall back to publish_date (YYYY/MM/DD).
-        """
         if pd.notna(row["event_date"]):
             return row["event_date"].strftime("%Y-%m-%d")
         if pd.notna(row["publish_date"]):
@@ -190,8 +127,15 @@ def view_extractions(
     counts = view["type"].value_counts().sort_index()
     print(counts.to_frame(name="count").to_string())
 
-    for dtype, group in view.groupby("type"):
-        if dtype == "unknown" or len(group) == 0:
+    # ---- Print floods first, then the rest ----
+    ordered_types = []
+    if "flood" in view["type"].unique():
+        ordered_types.append("flood")
+    ordered_types += sorted(t for t in view["type"].unique() if t not in ("flood", "unknown"))
+
+    for dtype in ordered_types:
+        group = view[view["type"] == dtype]
+        if len(group) == 0:
             continue
 
         print(f"\n=== {dtype.upper()} ({len(group)} events) ===\n")
@@ -201,9 +145,6 @@ def view_extractions(
         else:
             print(group.head(max_rows).to_string(index=False))
             print(f"\n... ({len(group) - max_rows} more rows not shown) ...\n")
-
-    if make_plots:
-        _save_plots(df, base_dir / plots_dirname)
 
 
 if __name__ == "__main__":

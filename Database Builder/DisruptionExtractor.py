@@ -53,6 +53,35 @@ class ExtractRecord:
     method: str  # "llm-single-pass"
 
 
+# ------------------ DATE NORMALISATION ------------------ #
+def _normalise_date(value: Any, *, date_only: bool) -> Optional[str]:
+    """
+    Validate/normalise a date value.
+    - If date_only=True: returns 'YYYY-MM-DD'
+    - Else: returns ISO datetime string (e.g. 'YYYY-MM-DDTHH:MM:SS+00:00')
+    Returns None if missing or not parseable.
+    """
+    if value is None:
+        return None
+
+    # Avoid NaN -> "nan" issues and empty strings
+    if isinstance(value, float) and pd.isna(value):
+        return None
+
+    s = str(value).strip()
+    if not s or s.lower() == "nan":
+        return None
+
+    try:
+        ts = pd.to_datetime(s, utc=True, errors="raise")
+    except Exception:
+        return None
+
+    if date_only:
+        return ts.date().isoformat()
+
+    return ts.isoformat()
+
 
 # ------------------ LLM EXTRACTION HELPER ------------------ #
 
@@ -242,15 +271,18 @@ def extract_from_url_llm_single_pass(url: str, model: str = DEFAULT_MODEL) -> Ex
     body = art.get("text", "") or ""
     publish_date = art.get("publish_date")  # ISO string or None
 
-
     llm_out = _call_chatgpt_extractor(url, title, body, model=model)
+
+    # ---- ONLY NECESSARY FIX: normalise dates here before writing outputs ----
+    publish_date_norm = _normalise_date(publish_date, date_only=False)
+    event_date_norm = _normalise_date(llm_out.get("event_date"), date_only=True)
 
     return ExtractRecord(
         url=url,
         source_title=title,
         disruption_type=llm_out.get("disruption_type") or "unknown",
-        event_date=llm_out.get("event_date"),
-        publish_date=publish_date,
+        event_date=event_date_norm,
+        publish_date=publish_date_norm,
         location_name=llm_out.get("location_name") or "",
         duration_hours=llm_out.get("duration_hours"),
         extras=llm_out.get("extras") or {},
@@ -258,7 +290,6 @@ def extract_from_url_llm_single_pass(url: str, model: str = DEFAULT_MODEL) -> Ex
         confidence=round(float(llm_out.get("confidence") or 0.0), 3),
         method="llm-single-pass",
     )
-
 
 
 # ------------------ BATCH RUNNER (CONCURRENT) ------------------ #
