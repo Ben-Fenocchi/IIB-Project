@@ -44,27 +44,18 @@ class ExtractRecord:
     source_title: str
     disruption_type: str
     event_date: Optional[str]        # extracted event date (LLM)
-    publish_date: Optional[str]      # article publication date (scraper), for use in collapsing duplicate events to one
+    publish_date: Optional[str]      # article publication date (scraper)
     location_name: str
     duration_hours: Optional[float]
     extras: Dict[str, Any]
-    evidence: List[Any]
     confidence: float
-    method: str  # "llm-single-pass"
 
 
 # ------------------ DATE NORMALISATION ------------------ #
 def _normalise_date(value: Any, *, date_only: bool) -> Optional[str]:
-    """
-    Validate/normalise a date value.
-    - If date_only=True: returns 'YYYY-MM-DD'
-    - Else: returns ISO datetime string (e.g. 'YYYY-MM-DDTHH:MM:SS+00:00')
-    Returns None if missing or not parseable.
-    """
     if value is None:
         return None
 
-    # Avoid NaN -> "nan" issues and empty strings
     if isinstance(value, float) and pd.isna(value):
         return None
 
@@ -92,10 +83,6 @@ def _call_chatgpt_extractor(
     model: str = DEFAULT_MODEL,
     timeout: int = 60,
 ) -> Dict[str, Any]:
-    """
-    Calls the LLM and forces a STRICT JSON object response.
-    Ensures all expected keys exist (defaults filled if missing).
-    """
 
     system_prompt = """\
 You are an information extraction engine for supply chain disruptions.
@@ -115,7 +102,6 @@ If there is no qualifying disruption, return:
   "location_name": "",
   "duration_hours": null,
   "extras": {{}},
-  "evidence": [],
   "confidence": 0.0
 }}
 
@@ -130,7 +116,6 @@ Schema:
   "location_name": "...",
   "duration_hours": number or null,
   "extras": {{ indicator_name: value }},
-  "evidence": [ "...", "..." ],
   "confidence": 0.0
 }}
 
@@ -208,7 +193,6 @@ tariffs:
 Rules:
 - Stay faithful to the text.
 - If unsure, leave fields null/empty and lower confidence.
-- Evidence should be short quoted phrases from the article.
 - Output JSON only.
 
 Now process this article:
@@ -235,7 +219,6 @@ TEXT:
 
     raw = completion.choices[0].message.content or ""
 
-    # Robust JSON parse
     try:
         data = json.loads(raw)
     except json.JSONDecodeError:
@@ -246,13 +229,11 @@ TEXT:
         else:
             data = {}
 
-    # Ensure keys exist
     data.setdefault("disruption_type", "unknown")
     data.setdefault("event_date", None)
     data.setdefault("location_name", "")
     data.setdefault("duration_hours", None)
     data.setdefault("extras", {})
-    data.setdefault("evidence", [])
     data.setdefault("confidence", 0.0)
 
     return data
@@ -261,19 +242,13 @@ TEXT:
 # ------------------ SINGLE-URL ORCHESTRATOR ------------------ #
 
 def extract_from_url_llm_single_pass(url: str, model: str = DEFAULT_MODEL) -> ExtractRecord:
-    """
-    1) Fetch article text/title
-    2) Call LLM extractor (single-pass)
-    3) Return ExtractRecord
-    """
     art = extract_article_text(url)
     title = art.get("title", "") or ""
     body = art.get("text", "") or ""
-    publish_date = art.get("publish_date")  # ISO string or None
+    publish_date = art.get("publish_date")
 
     llm_out = _call_chatgpt_extractor(url, title, body, model=model)
 
-    # ---- ONLY NECESSARY FIX: normalise dates here before writing outputs ----
     publish_date_norm = _normalise_date(publish_date, date_only=False)
     event_date_norm = _normalise_date(llm_out.get("event_date"), date_only=True)
 
@@ -286,9 +261,7 @@ def extract_from_url_llm_single_pass(url: str, model: str = DEFAULT_MODEL) -> Ex
         location_name=llm_out.get("location_name") or "",
         duration_hours=llm_out.get("duration_hours"),
         extras=llm_out.get("extras") or {},
-        evidence=llm_out.get("evidence") or [],
         confidence=round(float(llm_out.get("confidence") or 0.0), 3),
-        method="llm-single-pass",
     )
 
 
@@ -299,13 +272,6 @@ def run_batch(
     model: str = DEFAULT_MODEL,
     max_workers: int = MAX_WORKERS,
 ):
-    """
-    Concurrently process all URLs in input_csv and save outputs into ./results/
-    Writes:
-    - results/extractions.jsonl
-    - results/extractions.csv
-    - results/errors.csv
-    """
     base_dir = os.path.dirname(os.path.abspath(__file__))
     results_dir = os.path.join(base_dir, "results")
     os.makedirs(results_dir, exist_ok=True)
@@ -332,7 +298,6 @@ def run_batch(
     results: List[Dict[str, Any]] = []
     errors: List[Dict[str, Any]] = []
 
-    # Thread-safe JSONL writer
     write_lock = threading.Lock()
 
     def _worker(u: str) -> Dict[str, Any]:
@@ -350,7 +315,6 @@ def run_batch(
                 data = fut.result()
                 results.append(data)
 
-                # Append JSONL as we go (safe across threads)
                 with write_lock:
                     with open(out_jsonl, "a", encoding="utf-8") as f:
                         f.write(json.dumps(data, ensure_ascii=False) + "\n")
