@@ -18,7 +18,7 @@ HEADERS = {"User-Agent": USER_AGENT, "Accept": "text/html,application/xhtml+xml"
 TIMEOUT_S = 20
 MAX_RETRIES = 2
 SLEEP_BETWEEN_REQ = (0.05, 0.15) 
-MAX_WORKERS = 20  # Optimized for low 429 error rate
+MAX_WORKERS = 30  # Optimized for low 429 error rate
 
 MAX_TITLE_CHARS = 300
 MAX_DESC_CHARS = 800

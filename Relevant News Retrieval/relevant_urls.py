@@ -1,5 +1,5 @@
-import argparse
 import re
+import time
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -9,8 +9,30 @@ from joblib import load
 from sentence_transformers import SentenceTransformer
 
 
+# =========================
+# Paths
+# =========================
 GOLD_BASE_DIR = Path("data/processed/model_scored_daily")
 STATE_DIR = Path("data/interim/_state")
+
+# Your expert models root
+EXPERT_MODELS_DIR = Path("models/disruption_v2_experts")
+
+# If you want to score ONLY experts and skip the general model entirely:
+EXPERT_TYPES = [
+    "flood",
+    "drought",
+    "cyclone_huricane",
+    "extreme_heat",
+    "landslide",
+    "earthquake",
+    "mine_accident",
+    "labour_strike",
+    "protests",
+    "trade_embargo",
+    "country_relations",
+    "tariffs",
+]
 
 BAD_TEXT_PATTERNS = [
     "your privacy", "privacy choices", "cookie", "consent", "gdpr",
@@ -18,14 +40,19 @@ BAD_TEXT_PATTERNS = [
     "captcha", "#value", "value!"
 ]
 
+
 def looks_like_garbage(s: str) -> bool:
-    if not isinstance(s, str): return True
+    if not isinstance(s, str):
+        return True
     s = s.lower().strip()
-    if len(s) < 15: return True
+    if len(s) < 15:
+        return True
     return any(p in s for p in BAD_TEXT_PATTERNS)
 
+
 def url_to_text(url: str) -> str:
-    if not isinstance(url, str) or not url.strip(): return ""
+    if not isinstance(url, str) or not url.strip():
+        return ""
     try:
         path = urlparse(url).path
         path = path.replace("/", " ")
@@ -33,7 +60,9 @@ def url_to_text(url: str) -> str:
         path = re.sub(r"\.(html|htm|php|aspx|jsp)$", "", path, flags=re.IGNORECASE)
         path = re.sub(r"\b\d+\b", " ", path)
         return re.sub(r"\s+", " ", path).strip().lower()
-    except: return ""
+    except Exception:
+        return ""
+
 
 def build_text(row: pd.Series, use_url_fallback: bool = True) -> str:
     title = str(row.get("title", "")) if pd.notna(row.get("title")) else ""
@@ -43,60 +72,108 @@ def build_text(row: pd.Series, use_url_fallback: bool = True) -> str:
         return url_to_text(str(row.get("url_normalized", "")))
     return main
 
-# -----------------------------
-# MAIN SCORING LOGIC
-# -----------------------------
-def main(target_date: str, threshold_override: float = None, top_k: int = 0):
-    # 1. Setup Nested Path: Year/Month/Day
+
+def _load_expert_bundle(expert_type: str) -> dict:
+    """
+    Expected layout from training code:
+      models/disruption_v2_experts/expert_<type>/disruption_<type>.joblib
+    """
+    model_path = EXPERT_MODELS_DIR / f"expert_{expert_type}" / f"disruption_{expert_type}.joblib"
+    if not model_path.exists():
+        raise FileNotFoundError(f"Expert model not found: {model_path}")
+    return load(model_path)
+
+
+def main(target_date: str, top_k: int = 0):
+    # 1) Setup nested output dir
     year, month, day = target_date[:4], target_date[4:6], target_date[6:8]
     out_dir = GOLD_BASE_DIR / year / month / day
     out_dir.mkdir(parents=True, exist_ok=True)
-    
-    # 2. Find Input (Fixed Cache from Step 4)
-    in_csv = STATE_DIR / f"url_title_meta_cache_{target_date}_fixed.csv"
-    model_path = Path("models/disruption_v1/disruption_model.joblib")
 
+    # 2) Input file (from your Step 4 cache)
+    in_csv = STATE_DIR / f"url_title_meta_cache_{target_date}_fixed.csv"
     if not in_csv.exists():
-        print(f"Skipping Step 5: Cleaned cache {in_csv.name} not found.")
+        print(f"Skipping: Cleaned cache {in_csv.name} not found.")
         return
 
-    # 3. Load Model and Data
-    print(f"\n--- Step 5: Scoring Relevance for {target_date} ---")
-    bundle = load(model_path)
-    clf = bundle["classifier"]
-    threshold = threshold_override if threshold_override is not None else float(bundle.get("threshold", 0.5))
-    use_url_fallback = bool(bundle.get("use_url_fallback", True))
-
+    print(f"\n--- Scoring EXPERT disruption types for {target_date} ---")
     df = pd.read_csv(in_csv, encoding="utf-8", engine="python")
-    
-    # 4. Process
+
+    # 3) Load expert bundles (and sanity-check embed model consistency)
+    bundles = {}
+    embed_model_name = None
+    use_url_fallback = True
+
+    for t in EXPERT_TYPES:
+        b = _load_expert_bundle(t)
+        bundles[t] = b
+
+        # Ensure all experts use same embed model
+        b_embed = b.get("embed_model", "all-MiniLM-L6-v2")
+        if embed_model_name is None:
+            embed_model_name = b_embed
+        elif b_embed != embed_model_name:
+            raise RuntimeError(
+                f"Embed model mismatch: expected {embed_model_name}, but {t} has {b_embed}. "
+                "All expert models must use the same embedding model."
+            )
+
+        # Use fallback flag (assume consistent; if not, be conservative and OR them)
+        use_url_fallback = use_url_fallback or bool(b.get("use_url_fallback", True))
+
+    # 4) Build text once
     df["text"] = df.apply(lambda r: build_text(r, use_url_fallback=use_url_fallback), axis=1)
-    embedder = SentenceTransformer(bundle.get("embed_model", "all-MiniLM-L6-v2"))
 
-    print(f"Embedding {len(df)} rows...")
+    # 5) Embed once
+    embedder = SentenceTransformer(embed_model_name or "all-MiniLM-L6-v2")
+    print(f"Embedding {len(df)} rows using {embed_model_name} ...")
     X = embedder.encode(df["text"].astype(str).tolist(), normalize_embeddings=True, show_progress_bar=True)
-    
-    # 5. Scoring
-    probs = clf.predict_proba(X)[:, 1]
-    df["p_disruption"] = probs
-    df["keep"] = df["p_disruption"] >= threshold
 
-    # 6. Save results to the Nested Directory
-    kept = df[df["keep"]].sort_values("p_disruption", ascending=False)
-    if top_k > 0: kept = kept.head(top_k)
+    # 6) Score each expert
+    # Outputs:
+    #   p_<type> , keep_<type>
+    # Also:
+    #   p_any_expert (max), keep_any_expert (any keep), top_expert, top_expert_p
+    p_cols = []
 
-    scored_path = out_dir / f"{target_date}_scored.csv"
-    urls_path_txt = out_dir / f"{target_date}_interesting_urls.txt"
-    urls_path_csv = out_dir / f"{target_date}_interesting_urls_only.csv"
+    for t in EXPERT_TYPES:
+        clf = bundles[t]["classifier"]
+        thr = float(bundles[t].get("threshold", 0.5))
+        probs = clf.predict_proba(X)[:, 1]
 
+        p_col = f"p_{t}"
+        k_col = f"keep_{t}"
+        df[p_col] = probs
+        df[k_col] = probs >= thr
+        p_cols.append(p_col)
+
+    # 7) Aggregate expert view (no general model)
+    df["p_any_expert"] = df[p_cols].max(axis=1)
+    df["keep_any_expert"] = df[[f"keep_{t}" for t in EXPERT_TYPES]].any(axis=1)
+
+    # Which expert is most likely?
+    df["top_expert"] = df[p_cols].idxmax(axis=1).str.replace("^p_", "", regex=True)
+    df["top_expert_p"] = df["p_any_expert"]
+
+    # 8) Save outputs
+    scored_path = out_dir / f"{target_date}_experts_scored.csv"
     df.to_csv(scored_path, index=False)
+
+    kept = df[df["keep_any_expert"]].sort_values("p_any_expert", ascending=False)
+    if top_k > 0:
+        kept = kept.head(top_k)
+
+    urls_path_txt = out_dir / f"{target_date}_interesting_urls_experts.txt"
+    urls_path_csv = out_dir / f"{target_date}_interesting_urls_experts_only.csv"
     kept["url_normalized"].to_csv(urls_path_txt, index=False, header=False)
     kept[["url_normalized"]].to_csv(urls_path_csv, index=False)
 
     print(f"Success! Folder created: {out_dir}")
-    print(f"Total Scored: {len(df)} | Kept: {len(kept)}")
-    print(f"Final CSV: {urls_path_csv.name}\n")
+    print(f"Total scored: {len(df)} | Kept(any expert): {len(kept)}")
+    print(f"Scored CSV: {scored_path.name}")
+    print(f"URLs CSV:   {urls_path_csv.name}\n")
+
 
 if __name__ == "__main__":
-    day = input("Enter date to score (YYYYMMDD): ").strip()
-    main(day)
+    target_date = input("Enter date to score (YYYYMMDD): ").strip()
+    main(target_date, top_k=0)
