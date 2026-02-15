@@ -22,11 +22,11 @@ import pandas as pd
 BASE_DIR = Path(__file__).resolve().parent
 RESULTS_DIR = BASE_DIR / "results"
 
-EXTRACTIONS_CSV = RESULTS_DIR / "extractions.csv"
-EXTRACTIONS_JSONL = RESULTS_DIR / "extractions.jsonl"
+EXTRACTIONS_CSV = RESULTS_DIR / "weekly_extractions_202601.csv"
+EXTRACTIONS_JSONL = RESULTS_DIR / "weekly_extractions_202601.jsonl"
 
-CONSOLIDATED_CSV = RESULTS_DIR / "consolidatedExtractions.csv"
-CONSOLIDATED_JSONL = RESULTS_DIR / "consolidatedExtractions.jsonl"
+CONSOLIDATED_CSV = RESULTS_DIR / "consolidatedExtractions1Week.csv"
+CONSOLIDATED_JSONL = RESULTS_DIR / "consolidatedExtractions1Week.jsonl"
 
 
 # ------------------ LOAD HELPERS ------------------ #

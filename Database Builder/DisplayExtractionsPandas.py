@@ -3,8 +3,8 @@ from pathlib import Path
 
 
 def _load_extractions(base_dir: Path) -> pd.DataFrame:
-    csv_path = base_dir / "results" / "consolidatedExtractions.csv"
-    jsonl_path = base_dir / "results" / "consolidatedExtractions.jsonl"
+    csv_path = base_dir / "results" / "consolidatedExtractions1Week.csv"
+    jsonl_path = base_dir / "results" / "consolidatedExtractions1Week.jsonl"
 
     if csv_path.exists():
         return pd.read_csv(csv_path)

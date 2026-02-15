@@ -22,11 +22,11 @@ PUBLISH_PUBLISH_TOLERANCE_DAYS = 3
 BASE_DIR = Path(__file__).resolve().parent
 RESULTS_DIR = BASE_DIR / "results"
 
-INPUT_JSONL = RESULTS_DIR / "extractions.jsonl"
-INPUT_CSV = RESULTS_DIR / "extractions.csv"
+INPUT_JSONL = RESULTS_DIR / "weekly_extractions_202601.jsonl"
+INPUT_CSV = RESULTS_DIR / "weekly_extractions_202601.csv"
 
-OUTPUT_JSONL = RESULTS_DIR / "consolidatedExtractions.jsonl"
-OUTPUT_CSV = RESULTS_DIR / "consolidatedExtractions.csv"
+OUTPUT_JSONL = RESULTS_DIR / "consolidatedExtractions1Week.jsonl"
+OUTPUT_CSV = RESULTS_DIR / "consolidatedExtractions1Week.csv"
 
 
 # ------------------ LOAD ------------------ #
