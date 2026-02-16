@@ -1,4 +1,9 @@
-#!/usr/bin/env python3
+'''
+This script will append to the first cleanup script the top expert score for that URL to the database so we can see
+how the expert model classifier compares to the LLM at classing the disruption types - to see if we should rely on this rather
+than the LLM
+
+'''
 
 import pandas as pd
 from pathlib import Path

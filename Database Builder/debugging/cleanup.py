@@ -1,4 +1,6 @@
-#!/usr/bin/env python3
+'''
+This script will extract the url title and disruption type columns from the LLM extracted records (pre consolidation)
+'''
 
 import json
 import pandas as pd
