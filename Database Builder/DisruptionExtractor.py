@@ -134,7 +134,6 @@ flood:
 - rainfall_anomaly
 - rainfall_intensity
 - river_discharge
-- soil_saturation
 - reservoir_release
 
 drought:
@@ -150,25 +149,17 @@ cyclone_hurricane:
 
 extreme_heat:
 - temperature_anomaly
-- days_above_35c
-- wet_bulb_temp
 - power_grid_stress
 
 landslide:
 - rainfall_intensity
 - soil_moisture
-- slope_stability
 - deforestation_activity
 
 earthquake:
 - seismic_event_count
 - max_magnitude
 - foreshock_activity
-
-mine_collapse:
-- tailings_risk
-- inspection_failure
-- seepage_or_cracks
 
 mine_accident:
 - fatalities
@@ -180,6 +171,17 @@ labour_strike:
 - inflation_rate
 - wage_growth
 - strike_vote_result
+
+protest:
+-number_participants
+-duration
+-number of regions involved
+-number_arrested_detained
+-number_injured
+
+country_relations:
+-casualties
+-countries_involved
 
 trade_embargo:
 - sanction_count
