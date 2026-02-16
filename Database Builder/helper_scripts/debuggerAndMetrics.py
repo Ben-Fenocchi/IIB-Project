@@ -2,14 +2,10 @@
 """
 Unified date-debugging and coverage diagnostics script.
 
-Order of output:
-1) Coverage diagnostics (known disruption types only) — BEFORE and AFTER consolidation
-2) Parsed date coverage audit (before vs after)
-3) Event_date audit
-4) Publish_date audit
-5) Strict publish_date validation (no string coercion)
-
-All logic is datetime-based. No astype(str). No fillna("").
+Refactored to:
+- Accept DataFrames directly
+- Be callable from master pipeline
+- Still runnable standalone
 """
 
 from pathlib import Path
@@ -17,35 +13,33 @@ import json
 import pandas as pd
 
 
-# ------------------ PATHS ------------------ #
+# ------------------ LOAD HELPERS (standalone only) ------------------ #
 
-BASE_DIR = Path(__file__).resolve().parent
-RESULTS_DIR = BASE_DIR / "results"
+def load_df(input_path: Path) -> pd.DataFrame:
+    if not input_path.exists():
+        raise FileNotFoundError(f"{input_path} not found")
 
-EXTRACTIONS_CSV = RESULTS_DIR / "weekly_extractions_202601.csv"
-EXTRACTIONS_JSONL = RESULTS_DIR / "weekly_extractions_202601.jsonl"
+    if input_path.suffix.lower() == ".csv":
+        df = pd.read_csv(input_path)
 
-CONSOLIDATED_CSV = RESULTS_DIR / "consolidatedExtractions1Week.csv"
-CONSOLIDATED_JSONL = RESULTS_DIR / "consolidatedExtractions1Week.jsonl"
-
-
-# ------------------ LOAD HELPERS ------------------ #
-
-def load_df(csv_path: Path, jsonl_path: Path) -> pd.DataFrame:
-    if csv_path.exists():
-        df = pd.read_csv(csv_path)
-    elif jsonl_path.exists():
+    elif input_path.suffix.lower() == ".jsonl":
         records = []
-        with open(jsonl_path, "r", encoding="utf-8") as f:
+        with open(input_path, "r", encoding="utf-8") as f:
             for line in f:
                 records.append(json.loads(line))
         df = pd.DataFrame(records)
-    else:
-        raise FileNotFoundError(f"Missing {csv_path.name} / {jsonl_path.name}")
 
-    # Parse dates once
-    df["event_date"] = pd.to_datetime(df["event_date"], errors="coerce", utc=True).dt.tz_convert(None)
-    df["publish_date"] = pd.to_datetime(df["publish_date"], errors="coerce", utc=True).dt.tz_convert(None)
+    else:
+        raise ValueError("Input must be .csv or .jsonl")
+
+    df["event_date"] = (
+        pd.to_datetime(df.get("event_date"), errors="coerce", utc=True)
+        .dt.tz_convert(None)
+    )
+    df["publish_date"] = (
+        pd.to_datetime(df.get("publish_date"), errors="coerce", utc=True)
+        .dt.tz_convert(None)
+    )
 
     return df
 
@@ -66,7 +60,9 @@ def coverage_stats_known_only(df: pd.DataFrame, label: str):
         print("No known disruption types.\n")
         return
 
-    has_location = df["location_name"].notna() & (df["location_name"].str.strip() != "")
+    has_location = df["location_name"].notna() & (
+        df["location_name"].astype(str).str.strip() != ""
+    )
     has_event_date = df["event_date"].notna()
     has_publish_date = df["publish_date"].notna()
     has_any = has_event_date | has_publish_date
@@ -78,13 +74,21 @@ def coverage_stats_known_only(df: pd.DataFrame, label: str):
     print(f"- Any date      : {has_any.sum():5d} / {total} ({100*has_any.mean():5.1f}%)")
 
 
-# ------------------ MAIN AUDIT ------------------ #
+# ------------------ PUBLIC ENTRY POINT ------------------ #
 
-def main():
-    df_before = load_df(EXTRACTIONS_CSV, EXTRACTIONS_JSONL)
-    df_after = load_df(CONSOLIDATED_CSV, CONSOLIDATED_JSONL)
+def run_debugger_and_metrics(
+    df_before: pd.DataFrame,
+    df_after: pd.DataFrame
+):
+    """
+    Main callable function for master pipeline.
 
-    # ---- 1) Coverage diagnostics FIRST ----
+    Accepts:
+        df_before  = raw extractions
+        df_after   = consolidated extractions
+    """
+
+    # ---- 1) Coverage diagnostics ----
     coverage_stats_known_only(df_before, "Before Consolidating")
     coverage_stats_known_only(df_after, "After Consolidating")
 
@@ -99,12 +103,12 @@ def main():
     print(f"With any date (before)   : {any_before.sum()} ({100*any_before.mean():.1f}%)")
     print(f"With any date (after)    : {any_after.sum()} ({100*any_after.mean():.1f}%)")
 
-    # ---- 3) Event_date audit ----
+    # ---- 3) Event_date audit (before only) ----
     event_present = df_before["event_date"].notna()
     print("\n=== EVENT_DATE AUDIT (BEFORE) ===\n")
     print(f"With event_date          : {event_present.sum()} ({100*event_present.mean():.1f}%)")
 
-    # ---- 4) Publish_date audit ----
+    # ---- 4) Publish_date audit (before only) ----
     publish_present = df_before["publish_date"].notna()
     print("\n=== PUBLISH_DATE AUDIT (BEFORE) ===\n")
     print(f"With publish_date        : {publish_present.sum()} ({100*publish_present.mean():.1f}%)")
@@ -112,6 +116,7 @@ def main():
     # ---- 5) Strict publish_date validation ----
     publish_non_null = df_before["publish_date"].dropna()
     failures = 0
+
     for v in publish_non_null:
         try:
             pd.to_datetime(v, utc=True, errors="raise")
@@ -124,5 +129,13 @@ def main():
     print(f"Invalid datetimes            : {failures}")
 
 
+# ------------------ STANDALONE SUPPORT ------------------ #
+
 if __name__ == "__main__":
-    main()
+    base_dir = Path(__file__).resolve().parent
+    results_dir = base_dir / "results"
+
+    before = load_df(results_dir / "weekly_extractions_202601.jsonl")
+    after = load_df(results_dir / "weekly_extractions_202601Consolidated.jsonl")
+
+    run_debugger_and_metrics(before, after)

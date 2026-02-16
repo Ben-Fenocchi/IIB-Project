@@ -12,7 +12,7 @@ from openai import OpenAI
 from dotenv import load_dotenv
 from tqdm import tqdm
 
-from webscraper import extract_article_text
+from helper_scripts.webscraper import extract_article_text
 
 
 # ------------------ ENV + OPENAI CLIENT SETUP ------------------ #

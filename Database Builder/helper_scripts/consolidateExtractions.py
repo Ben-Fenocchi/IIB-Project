@@ -19,36 +19,36 @@ EVENT_EVENT_TOLERANCE_DAYS = 1
 EVENT_PUBLISH_TOLERANCE_DAYS = 2
 PUBLISH_PUBLISH_TOLERANCE_DAYS = 3
 
-BASE_DIR = Path(__file__).resolve().parent
-RESULTS_DIR = BASE_DIR / "results"
-
-INPUT_JSONL = RESULTS_DIR / "weekly_extractions_202601.jsonl"
-INPUT_CSV = RESULTS_DIR / "weekly_extractions_202601.csv"
-
-OUTPUT_JSONL = RESULTS_DIR / "consolidatedExtractions1Week.jsonl"
-OUTPUT_CSV = RESULTS_DIR / "consolidatedExtractions1Week.csv"
-
 
 # ------------------ LOAD ------------------ #
 
-def load_extractions() -> pd.DataFrame:
-    if INPUT_JSONL.exists():
+def load_extractions(input_path: Path) -> pd.DataFrame:
+    if not input_path.exists():
+        raise FileNotFoundError(f"{input_path} not found")
+
+    if input_path.suffix.lower() == ".jsonl":
         records = []
-        with open(INPUT_JSONL, "r", encoding="utf-8") as f:
+        with open(input_path, "r", encoding="utf-8") as f:
             for line in f:
                 records.append(json.loads(line))
         df = pd.DataFrame(records)
-    elif INPUT_CSV.exists():
-        df = pd.read_csv(INPUT_CSV)
-    else:
-        raise FileNotFoundError("No extractions.jsonl or extractions.csv found")
 
-    # ---- DATE PARSING (trust upstream normalisation) ----
-    df["event_date"] = pd.to_datetime(df["event_date"], errors="coerce", utc=True).dt.tz_convert(None)
-    df["publish_date"] = pd.to_datetime(df["publish_date"], errors="coerce", utc=True).dt.tz_convert(None)
+    elif input_path.suffix.lower() == ".csv":
+        df = pd.read_csv(input_path)
+
+    else:
+        raise ValueError("Input must be .jsonl or .csv")
+
+    df["event_date"] = pd.to_datetime(
+        df.get("event_date"), errors="coerce", utc=True
+    ).dt.tz_convert(None)
+
+    df["publish_date"] = pd.to_datetime(
+        df.get("publish_date"), errors="coerce", utc=True
+    ).dt.tz_convert(None)
 
     df["disruption_type"] = (
-        df["disruption_type"]
+        df.get("disruption_type", "")
         .fillna("unknown")
         .astype(str)
         .str.lower()
@@ -106,10 +106,10 @@ def merge_cluster(cluster: List[Dict[str, Any]]) -> Dict[str, Any]:
 
     merged["disruption_type"] = cluster[0]["disruption_type"]
 
-    event_dates = [r["event_date"] for r in cluster if pd.notna(r["event_date"])]
+    event_dates = [r["event_date"] for r in cluster if pd.notna(r.get("event_date"))]
     merged["event_date"] = min(event_dates) if event_dates else None
 
-    publish_dates = [r["publish_date"] for r in cluster if pd.notna(r["publish_date"])]
+    publish_dates = [r["publish_date"] for r in cluster if pd.notna(r.get("publish_date"))]
     merged["publish_date"] = min(publish_dates) if publish_dates else None
 
     merged["location_name"] = max(
@@ -139,14 +139,15 @@ def merge_cluster(cluster: List[Dict[str, Any]]) -> Dict[str, Any]:
                 if v is not None:
                     extras.setdefault(k, []).append(v)
 
-    merged["extras"] = {k: vals[0] if len(vals) == 1 else vals for k, vals in extras.items()}
+    merged["extras"] = {
+        k: vals[0] if len(vals) == 1 else vals
+        for k, vals in extras.items()
+    }
 
-    merged["evidence"] = [
-        e for r in cluster if isinstance(r.get("evidence"), list) for e in r["evidence"]
-    ]
-
-    merged["confidence"] = max((r.get("confidence", 0.0) for r in cluster), default=0.0)
-    merged["method"] = sorted({r.get("method") for r in cluster if r.get("method")})
+    merged["confidence"] = max(
+        (r.get("confidence", 0.0) for r in cluster),
+        default=0.0
+    )
 
     return merged
 
@@ -157,13 +158,8 @@ def dedupe_events(df: pd.DataFrame) -> pd.DataFrame:
     records = df.to_dict(orient="records")
 
     clusters: List[List[Dict[str, Any]]] = []
-    passthrough: List[Dict[str, Any]] = []
 
     for record in records:
-        if record["disruption_type"] == "unknown":
-            passthrough.append(record)
-            continue
-
         rec_tokens = location_tokens(record.get("location_name", ""))
         rec_match = choose_match_date(record)
 
@@ -194,15 +190,15 @@ def dedupe_events(df: pd.DataFrame) -> pd.DataFrame:
             clusters.append([record])
 
     merged_events = [merge_cluster(c) for c in clusters]
-    return pd.DataFrame(merged_events + passthrough)
+    return pd.DataFrame(merged_events)
 
 
 # ------------------ SAVE ------------------ #
 
-def save_outputs(df: pd.DataFrame):
-    df.to_csv(OUTPUT_CSV, index=False)
+def save_outputs(df: pd.DataFrame, output_csv: Path, output_jsonl: Path):
+    df.to_csv(output_csv, index=False)
 
-    with open(OUTPUT_JSONL, "w", encoding="utf-8") as f:
+    with open(output_jsonl, "w", encoding="utf-8") as f:
         for _, row in df.iterrows():
             record = row.to_dict()
             for k in ("event_date", "publish_date"):
@@ -213,15 +209,19 @@ def save_outputs(df: pd.DataFrame):
             f.write(json.dumps(record, ensure_ascii=False) + "\n")
 
 
-# ------------------ MAIN ------------------ #
+# ------------------ PUBLIC ENTRY POINT ------------------ #
 
-def main():
-    df_before = load_extractions()
+def run_consolidation(input_path: Path) -> pd.DataFrame:
+    df_before = load_extractions(input_path)
     df_after = dedupe_events(df_before)
 
-    save_outputs(df_after)
-    print("Saved consolidatedExtractions.csv and consolidatedExtractions.jsonl")
+    output_base = input_path.with_name(input_path.stem + "Consolidated")
 
+    output_csv = output_base.with_suffix(".csv")
+    output_jsonl = output_base.with_suffix(".jsonl")
 
-if __name__ == "__main__":
-    main()
+    save_outputs(df_after, output_csv, output_jsonl)
+
+    print(f"Saved {output_csv.name} and {output_jsonl.name}")
+
+    return df_after
